@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35806.99
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CCAPI", "CCAPI.csproj", "{DBA3D1E1-4970-4454-A554-82DFF7324083}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CCAPIapp", "..\CCAPIapp\CCAPIapp.csproj", "{A450553C-1033-4605-8582-33F41FD5B3FF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DBA3D1E1-4970-4454-A554-82DFF7324083}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DBA3D1E1-4970-4454-A554-82DFF7324083}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DBA3D1E1-4970-4454-A554-82DFF7324083}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DBA3D1E1-4970-4454-A554-82DFF7324083}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A450553C-1033-4605-8582-33F41FD5B3FF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A450553C-1033-4605-8582-33F41FD5B3FF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A450553C-1033-4605-8582-33F41FD5B3FF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A450553C-1033-4605-8582-33F41FD5B3FF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {4763D3BF-5CB9-42ED-96BA-D70B728FC947}
+	EndGlobalSection
+EndGlobal

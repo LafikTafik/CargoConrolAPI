@@ -1,0 +1,6 @@
+@CCAPI_HostAddress = http://localhost:5012
+
+GET {{CCAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
