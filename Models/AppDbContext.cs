@@ -7,6 +7,7 @@ namespace CCAPI.Models
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
         }
+        public DbSet<User> Users { get; set; } = null!;
         public DbSet<Client> Clients { get; set; } = null!;
         public DbSet<Orders> Order { get; set; } = null!;
         public DbSet<Cargos> Cargo { get; set; } = null!;
@@ -68,6 +69,11 @@ namespace CCAPI.Models
                 .HasForeignKey(v => v.TransportationCompanyId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<Orders>(entity =>
+            {
+                entity.Property(e => e.Price)
+                    .HasColumnType("decimal(18,2)"); // или HasPrecision(18, 2)
+            });
         }
     }
 }
