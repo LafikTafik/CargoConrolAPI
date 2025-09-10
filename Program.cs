@@ -5,18 +5,19 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Добавляем контроллеры
+
 builder.Services.AddControllers();
 
-// Настраиваем подключение к SQL Server
+
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(connectionString));
 
-// Настройка Swagger с разделами (тегами)
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -42,7 +43,7 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 
-    // 🔐 Настройка JWT Bearer авторизации
+    
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -53,7 +54,6 @@ builder.Services.AddSwaggerGen(options =>
         Description = "Введите Bearer + JWT токен"
     });
 
-    // ✅ КЛЮЧЕВАЯ СТРОКА: добавляет Bearer автоматически
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
@@ -69,11 +69,11 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 
-    // ✅ ГРУППИРОВКА ПО КОНТРОЛЛЕРАМ — ЭТО САМОЕ ВАЖНОЕ!
+   
     options.TagActionsBy(api => new[] { api.ActionDescriptor.RouteValues["controller"] });
     options.DocInclusionPredicate((name, api) => true);
 
-    // 📄 Подключаем XML-комментарии (если есть)
+    
     var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
     if (File.Exists(xmlPath))
@@ -103,22 +103,44 @@ builder.Services.AddAuthentication(options =>
         )
     };
 });
+builder.Services.AddRateLimiter(options =>
+{
+    // Глобальная политика (опционально)
+    options.AddPolicy("LoginPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1)
+            }));
 
-// ✅ Авторизация
+    options.AddPolicy("RefreshPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User?.FindFirst("sub")?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+});
+
 builder.Services.AddAuthorization();
 
-// HttpContextAccessor (если используешь User в контроллерах)
+
 builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
 
-// В режиме разработки — Swagger
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
 
+//if (app.Environment.IsDevelopment())
+//{
+//    app.UseSwagger();
+//    app.UseSwaggerUI();
+//}
+
+app.UseSwagger();
+app.UseSwaggerUI();
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
@@ -126,6 +148,7 @@ app.UseRouting();
 // 🔐 Порядок важен!
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 

@@ -7,6 +7,8 @@ using System.Text;
 using CCAPI.Models;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
+using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace CCAPI.Controllers
 {
@@ -24,22 +26,23 @@ namespace CCAPI.Controllers
         }
 
         // POST: /api/auth/login
+        [EnableRateLimiting("LoginPolicy")]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginModel model)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
             var user = await _context.Users
                 .FirstOrDefaultAsync(u => u.Email == model.Email && !u.IsDeleted);
 
             if (user == null || !BCrypt.Net.BCrypt.Verify(model.Password, user.PasswordHash))
                 return Unauthorized(new { message = "Неверный email или пароль" });
 
-            // Генерируем Access Token (2 часа)
             var accessToken = GenerateJwtToken(user);
 
-            // Генерируем Refresh Token (7 дней)
             var refreshToken = GenerateRefreshToken();
             user.RefreshToken = refreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(4);//дни
             await _context.SaveChangesAsync();
 
             return Ok(new LoginResponse
@@ -75,6 +78,8 @@ namespace CCAPI.Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterModel model)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
             if (await _context.Users.AnyAsync(u => u.Email == model.Email && !u.IsDeleted))
                 return BadRequest(new { message = "Email уже зарегистрирован" });
 
@@ -97,11 +102,20 @@ namespace CCAPI.Controllers
         }
 
         // POST: /api/auth/refresh
+        [EnableRateLimiting("RefreshPolicy")]
         [HttpPost("refresh")]
         public async Task<IActionResult> Refresh([FromBody] RefreshModel model)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
             var principal = GetPrincipalFromExpiredToken(model.AccessToken);
             if (principal == null) return BadRequest("Invalid access token");
+
+            var expClaim = principal.FindFirst(JwtRegisteredClaimNames.Exp);
+            if (expClaim == null || !long.TryParse(expClaim.Value, out long exp) || DateTimeOffset.FromUnixTimeSeconds(exp) > DateTimeOffset.UtcNow)
+            {
+                return BadRequest("Access token is not expired");
+            }
 
             var userId = principal.Identity.Name;
             var user = await _context.Users.FindAsync(int.Parse(userId));
@@ -113,10 +127,8 @@ namespace CCAPI.Controllers
                 return BadRequest("Invalid refresh token");
             }
 
-            // Генерируем новый Access Token
             var newAccessToken = GenerateJwtToken(user);
 
-            // Генерируем новый Refresh Token
             var newRefreshToken = GenerateRefreshToken();
             user.RefreshToken = newRefreshToken;
             user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
@@ -166,7 +178,7 @@ namespace CCAPI.Controllers
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.Now.AddHours(2),
+                expires: DateTime.UtcNow.AddHours(10),// часы 
                 signingCredentials: credentials
             );
 
@@ -211,7 +223,7 @@ namespace CCAPI.Controllers
             }
         }
 
-        // Вспомогательные методы
+       
         private int GetUserId()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -224,10 +236,14 @@ namespace CCAPI.Controllers
         }
     }
 
-    // Модели
     public class LoginModel
     {
+        [Required(ErrorMessage = "Email обязателен")]
+        [EmailAddress(ErrorMessage = "Неверный формат email")]
         public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Пароль обязателен")]
+        [MinLength(6, ErrorMessage = "Пароль должен быть не менее 6 символов")]
         public string Password { get; set; } = string.Empty;
     }
 
