@@ -1,5 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
+﻿using System.ComponentModel.DataAnnotations.Schema;
+using System.ComponentModel.DataAnnotations;
 
 namespace CCAPI.Models
 {
@@ -18,8 +18,7 @@ namespace CCAPI.Models
         public string PasswordHash { get; set; } = string.Empty;
 
         [Required]
-        [Column(TypeName = "nvarchar(50)")]
-        public string Role { get; set; } = "User"; // По умолчанию — User
+        public int RoleId { get; set; }
 
         // Связи (может быть NULL)
         public int? ClientID { get; set; }
@@ -34,5 +33,8 @@ namespace CCAPI.Models
         // Навигационные свойства (для EF Core)
         public Client? Client { get; set; }
         public Driver? Driver { get; set; }
+
+        // ← Добавляем это!
+        public Role? Role { get; set; } // Навигационное свойство к Role
     }
 }

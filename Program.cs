@@ -6,6 +6,7 @@ using System.Text;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
 using System.Threading.RateLimiting;
+using CCAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,7 +16,10 @@ builder.Services.AddControllers();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(connectionString));
+{
+    options.UseSqlServer(connectionString);
+    options.EnableSensitiveDataLogging(); // ← Покажет ID в ошибке
+});
 
 
 builder.Services.AddEndpointsApiExplorer();
@@ -23,7 +27,7 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
     {
-        Version = "v1",
+        Version = "I am monkey",
         Title = "CargoControl API",
         Description = @"
 ### Роли пользователей:
@@ -43,16 +47,15 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 
-    
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Name = "Authorization",
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer",
+        Type = SecuritySchemeType.Http,   
+        Scheme = "bearer",                
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Введите Bearer + JWT токен"
+        Description = "Введите JWT токен"
     });
+
 
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
@@ -65,7 +68,7 @@ builder.Services.AddSwaggerGen(options =>
                     Id = "Bearer"
                 }
             },
-            Array.Empty<string>() // пустой массив — значит, нет дополнительных прав
+            Array.Empty<string>() 
         }
     });
 
@@ -105,7 +108,6 @@ builder.Services.AddAuthentication(options =>
 });
 builder.Services.AddRateLimiter(options =>
 {
-    // Глобальная политика (опционально)
     options.AddPolicy("LoginPolicy", context =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
@@ -126,18 +128,12 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddAuthorization();
-
-
 builder.Services.AddHttpContextAccessor();
 
+
+//builder.Services.AddHostedService<DataSeeder>();
+
 var app = builder.Build();
-
-
-//if (app.Environment.IsDevelopment())
-//{
-//    app.UseSwagger();
-//    app.UseSwaggerUI();
-//}
 
 app.UseSwagger();
 app.UseSwaggerUI();

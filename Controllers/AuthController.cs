@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Logging;
 
 namespace CCAPI.Controllers
 {
@@ -18,11 +19,13 @@ namespace CCAPI.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IConfiguration _configuration;
+        private readonly ILogger<AuthController> _logger;
 
-        public AuthController(AppDbContext context, IConfiguration configuration)
+        public AuthController(AppDbContext context, IConfiguration configuration, ILogger<AuthController> logger)
         {
             _context = context;
             _configuration = configuration;
+            _logger = logger;
         }
 
         // POST: /api/auth/login
@@ -32,7 +35,9 @@ namespace CCAPI.Controllers
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
+
             var user = await _context.Users
+                .Include(u => u.Role) // ← Подгружаем связанную роль
                 .FirstOrDefaultAsync(u => u.Email == model.Email && !u.IsDeleted);
 
             if (user == null || !BCrypt.Net.BCrypt.Verify(model.Password, user.PasswordHash))
@@ -42,7 +47,7 @@ namespace CCAPI.Controllers
 
             var refreshToken = GenerateRefreshToken();
             user.RefreshToken = refreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(4);//дни
+            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(4);
             await _context.SaveChangesAsync();
 
             return Ok(new LoginResponse
@@ -50,7 +55,7 @@ namespace CCAPI.Controllers
                 AccessToken = accessToken,
                 RefreshToken = refreshToken,
                 ExpiresAt = DateTime.UtcNow.AddHours(2),
-                Role = user.Role,
+                Role = user.Role.Name, 
                 UserId = user.ID,
                 Name = $"{user.Client?.Name ?? user.Driver?.LastName ?? user.Email.Split('@')[0]}"
             });
@@ -58,28 +63,59 @@ namespace CCAPI.Controllers
 
         [Authorize]
         [HttpGet("me")]
-        public IActionResult GetCurrentUser()
+        public async Task<IActionResult> GetCurrentUser()
         {
-            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var email = User.FindFirst(ClaimTypes.Email)?.Value;
-            var role = User.FindFirst(ClaimTypes.Role)?.Value;
-            var name = User.FindFirst(ClaimTypes.Name)?.Value;
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
+                return Unauthorized();
+
+            var user = await _context.Users
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.ID == userId);
+
+            if (user == null)
+                return NotFound();
 
             return Ok(new
             {
-                UserId = int.Parse(userId),
-                Email = email,
-                Role = role,
-                Name = name
+                UserId = user.ID,
+                Email = user.Email,
+                Role = user.Role.Name,
+                Name = $"{user.Client?.Name ?? user.Driver?.LastName ?? user.Email.Split('@')[0]}"
             });
         }
 
         // POST: /api/auth/register
         [HttpPost("register")]
+        [Authorize]
         public async Task<IActionResult> Register([FromBody] RegisterModel model)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
+
+            var currentUserRoleClaim = User.FindFirst(ClaimTypes.Role)?.Value;
+            if (string.IsNullOrEmpty(currentUserRoleClaim))
+                return Forbid("Роль не определена");
+
+            var targetRoleName = model.Role ?? "User";
+            var targetRole = await _context.Roles.FirstOrDefaultAsync(r => r.Name == targetRoleName);
+            if (targetRole == null)
+                return BadRequest("Недопустимая роль");
+
+            // Проверка прав: только админ может создавать админов и модераторов
+
+
+            if (targetRoleName == "Admin" || targetRoleName == "Moderator")
+            {
+                if (currentUserRoleClaim != "Admin")
+                    return Forbid("Только администратор может создавать пользователей с этой ролью");
+            }
+            else
+            {
+                if (currentUserRoleClaim != "Admin" && currentUserRoleClaim != "Moderator")
+                    return Forbid("У вас нет прав для создания пользователей");
+            }
+
             if (await _context.Users.AnyAsync(u => u.Email == model.Email && !u.IsDeleted))
                 return BadRequest(new { message = "Email уже зарегистрирован" });
 
@@ -89,7 +125,7 @@ namespace CCAPI.Controllers
             {
                 Email = model.Email,
                 PasswordHash = passwordHash,
-                Role = model.Role ?? "User",
+                RoleId = targetRole.Id, // ← Сохраняем ID роли
                 ClientID = model.ClientID,
                 DriverID = model.DriverID,
                 IsDeleted = false
@@ -108,8 +144,10 @@ namespace CCAPI.Controllers
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
+
             var principal = GetPrincipalFromExpiredToken(model.AccessToken);
-            if (principal == null) return BadRequest("Invalid access token");
+            if (principal == null)
+                return BadRequest("Invalid access token");
 
             var expClaim = principal.FindFirst(JwtRegisteredClaimNames.Exp);
             if (expClaim == null || !long.TryParse(expClaim.Value, out long exp) || DateTimeOffset.FromUnixTimeSeconds(exp) > DateTimeOffset.UtcNow)
@@ -117,8 +155,13 @@ namespace CCAPI.Controllers
                 return BadRequest("Access token is not expired");
             }
 
-            var userId = principal.Identity.Name;
-            var user = await _context.Users.FindAsync(int.Parse(userId));
+            var userId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId) || !int.TryParse(userId, out int id))
+                return BadRequest("Invalid user ID in token");
+
+            var user = await _context.Users
+                .Include(u => u.Role) // ← Подгружаем роль
+                .FirstOrDefaultAsync(u => u.ID == id);
 
             if (user == null ||
                 user.RefreshToken != model.RefreshToken ||
@@ -139,7 +182,7 @@ namespace CCAPI.Controllers
                 AccessToken = newAccessToken,
                 RefreshToken = newRefreshToken,
                 ExpiresAt = DateTime.UtcNow.AddHours(2),
-                Role = user.Role,
+                Role = user.Role.Name, 
                 UserId = user.ID,
                 Name = $"{user.Client?.Name ?? user.Driver?.LastName ?? user.Email.Split('@')[0]}"
             });
@@ -147,6 +190,7 @@ namespace CCAPI.Controllers
 
         // POST: /api/auth/logout
         [HttpPost("logout")]
+        [Authorize] // ← Добавлено: только авторизованные могут выйти
         public async Task<IActionResult> Logout()
         {
             var userId = GetUserId();
@@ -156,6 +200,7 @@ namespace CCAPI.Controllers
                 user.RefreshToken = null;
                 user.RefreshTokenExpiryTime = null;
                 await _context.SaveChangesAsync();
+                _logger.LogInformation("User {UserId} logged out and refresh token revoked", userId);
             }
             return Ok("Logged out");
         }
@@ -168,17 +213,18 @@ namespace CCAPI.Controllers
 
             var claims = new[]
             {
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
                 new Claim(ClaimTypes.NameIdentifier, user.ID.ToString()),
                 new Claim(ClaimTypes.Email, user.Email),
                 new Claim(ClaimTypes.Name, $"{user.Client?.Name ?? user.Driver?.LastName ?? user.Email.Split('@')[0]}"),
-                new Claim(ClaimTypes.Role, user.Role)
+                new Claim(ClaimTypes.Role, user.Role.Name) // ← Исправлено: передаём имя роли
             };
 
             var token = new JwtSecurityToken(
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddHours(10),// часы 
+                expires: DateTime.UtcNow.AddHours(10),
                 signingCredentials: credentials
             );
 
@@ -211,28 +257,25 @@ namespace CCAPI.Controllers
             try
             {
                 var principal = tokenHandler.ValidateToken(jwtToken, tokenValidationParameters, out var securityToken);
-                if (securityToken is not JwtSecurityToken jwtSecurityToken || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+                if (securityToken is not JwtSecurityToken jwtSecurityToken ||
+                    !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+                {
                     throw new SecurityTokenException("Invalid token");
+                }
 
                 return principal;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error validating expired token: {ex.Message}");
+                _logger.LogWarning(ex, "Error validating expired token");
                 return null;
             }
         }
 
-       
         private int GetUserId()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return int.TryParse(userIdClaim, out int userId) ? userId : 0;
-        }
-
-        private string GetUserRole()
-        {
-            return User.FindFirst(ClaimTypes.Role)?.Value ?? "Unknown";
         }
     }
 
@@ -249,16 +292,27 @@ namespace CCAPI.Controllers
 
     public class RegisterModel
     {
+        [Required(ErrorMessage = "Email обязателен")]
+        [EmailAddress(ErrorMessage = "Неверный формат email")]
         public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Пароль обязателен")]
+        [MinLength(8, ErrorMessage = "Пароль должен быть не менее 8 символов")]
         public string Password { get; set; } = string.Empty;
-        public string? Role { get; set; }
+
+        [Required(ErrorMessage = "Роль обязательна")]
+        public string Role { get; set; } = "User";
+
         public int? ClientID { get; set; }
         public int? DriverID { get; set; }
     }
 
     public class RefreshModel
     {
+        [Required(ErrorMessage = "Access token обязателен")]
         public string AccessToken { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Refresh token обязателен")]
         public string RefreshToken { get; set; } = string.Empty;
     }
 

@@ -20,7 +20,6 @@ namespace CCAPI.Controllers
         }
 
         // GET: /api/cargos
-        // User — только грузы в своих заказах, Moderator/Admin — все
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
@@ -62,7 +61,6 @@ namespace CCAPI.Controllers
         }
 
         // GET: /api/cargos/deleted
-        // Только Admin
         [Authorize(Roles = "Admin")]
         [HttpGet("deleted")]
         public async Task<IActionResult> GetDeleted()
@@ -84,7 +82,6 @@ namespace CCAPI.Controllers
         }
 
         // GET: /api/cargos/{id}
-        // Проверка, что User имеет доступ
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
@@ -130,7 +127,6 @@ namespace CCAPI.Controllers
         }
 
         // POST: /api/cargos
-        // Только Moderator и Admin
         [Authorize(Roles = "Moderator, Admin")]
         [HttpPost]
         public async Task<IActionResult> Create(CargoDto dto)
@@ -151,7 +147,6 @@ namespace CCAPI.Controllers
         }
 
         // PUT: /api/cargos/{id}
-        // Только Moderator и Admin
         [Authorize(Roles = "Moderator, Admin")]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, CargoDto dto)
@@ -168,7 +163,6 @@ namespace CCAPI.Controllers
         }
 
         // DELETE: /api/cargos/{id}
-        // Только Admin
         [Authorize(Roles = "Admin")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
@@ -183,7 +177,6 @@ namespace CCAPI.Controllers
         }
 
         // POST: /api/cargos/restore/{id}
-        // Только Admin
         [Authorize(Roles = "Admin")]
         [HttpPost("restore/{id}")]
         public async Task<IActionResult> Restore(int id)
