@@ -7,6 +7,8 @@ namespace CCAPI.Models
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
         }
+        public DbSet<User> Users { get; set; } = null!;
+        public DbSet<Role> Roles { get; set; } = null!;
         public DbSet<Client> Clients { get; set; } = null!;
         public DbSet<Orders> Order { get; set; } = null!;
         public DbSet<Cargos> Cargo { get; set; } = null!;
@@ -19,6 +21,12 @@ namespace CCAPI.Models
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<User>()
+                .HasOne(u => u.Role)
+                .WithMany()
+                .HasForeignKey(u => u.RoleId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // Client -> Orders
             modelBuilder.Entity<Orders>()
                 .HasOne(o => o.Client)
@@ -67,7 +75,12 @@ namespace CCAPI.Models
                 .WithMany(c => c.Vehicles)
                 .HasForeignKey(v => v.TransportationCompanyId)
                 .OnDelete(DeleteBehavior.Restrict);
-
+           
+            modelBuilder.Entity<Orders>(entity =>
+            {
+                entity.Property(e => e.Price)
+                    .HasColumnType("decimal(18,2)"); // или HasPrecision(18, 2)
+            });
         }
     }
 }
